@@ -13,16 +13,19 @@ export const auditCsvData = async (apiKey: string, data: CsvRow[]): Promise<stri
   const sample = getSampleRows(data, 10);
   
   const prompt = `
-    I have a CSV file uploaded for a marketing contact list. 
-    Here are the first 10 rows of the data in JSON format:
+    I am an auditor for Facebook (Meta) Ads Customer Lists.
+    Target Location: **Israel** (+972).
+    
+    Analyze the following CSV sample (first 10 rows) against "Meta Customer list formatting guidelines":
     ${sample}
 
-    Please analyze this sample and provide a brief data quality report (maximum 150 words).
-    1. Identify the likely language/region of the names (e.g., Hebrew, Russian, English).
-    2. Check if the 'Phone' or contact columns look correctly formatted (look for standard country codes).
-    3. Note any obvious inconsistencies between columns (e.g. name column has email).
-    
-    Output as a clean markdown list.
+    **Strict Verification Rules:**
+    1. **Emails**: Must be **lowercase** and trimmed. No uppercase letters allowed.
+    2. **Phones**: Must be digits only. Format: Country Code + Number (e.g., 972501234567). No symbols (+, -), no leading zeros.
+    3. **Excel Artifacts**: Verify no '="..."' formulas or scientific notation remain.
+    4. **Columns**: Are 'email' and 'phone' columns clearly identifiable?
+
+    Output a concise report. If clean, say "PASSED: Ready for Meta Upload". If not, bullet point specific rows/values that fail.
   `;
 
   try {

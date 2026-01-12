@@ -25,3 +25,13 @@ export interface ColumnStats {
   empty: number;
   total: number;
 }
+
+export interface FbStats {
+  totalRows: number;
+  validPhones: number;
+  fixedPhones: number;
+  invalidPhones: number;
+  validEmails: number;
+  fixedEmails: number; // Added to track emails converted to lowercase
+  matchRateEstimate: string;
+}

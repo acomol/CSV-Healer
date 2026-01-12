@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye } from 'lucide-react';
-import { CsvRow, ProcessingStatus } from './types';
+import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye, Facebook, BarChart3, XCircle, Mail, Phone } from 'lucide-react';
+import { CsvRow, ProcessingStatus, FbStats } from './types';
 import { processCsvData, detectFormulaErrors } from './utils/csvHelper';
 import { auditCsvData } from './services/geminiService';
 import { ApiKeyModal } from './components/ApiKeyModal';
@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [data, setData] = useState<CsvRow[]>([]);
   const [cleanedData, setCleanedData] = useState<CsvRow[]>([]);
+  const [fbStats, setFbStats] = useState<FbStats | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [errorCount, setErrorCount] = useState<number>(0);
   const [aiReport, setAiReport] = useState<string>('');
@@ -35,9 +36,10 @@ const App: React.FC = () => {
     setAiReport('');
     setCleanedData([]);
     setErrorCount(0);
+    setFbStats(null);
 
     Papa.parse(file, {
-      header: true,
+      header: true, 
       skipEmptyLines: true,
       complete: (results: any) => {
         setData(results.data);
@@ -54,12 +56,12 @@ const App: React.FC = () => {
 
   const handleClean = () => {
     setStatus(ProcessingStatus.PROCESSING);
-    // Simulate slight delay for UX
     setTimeout(() => {
-      const processed = processCsvData(data);
-      setCleanedData(processed);
+      const { cleaned, stats } = processCsvData(data);
+      setCleanedData(cleaned);
+      setFbStats(stats);
       setStatus(ProcessingStatus.COMPLETED);
-    }, 600);
+    }, 800);
   };
 
   const handleVerify = () => {
@@ -75,7 +77,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `fixed_${fileName}`);
+    link.setAttribute('download', `FB_Ready_${fileName}`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -89,7 +91,8 @@ const App: React.FC = () => {
 
     setIsAiLoading(true);
     try {
-      const report = await auditCsvData(apiKey, data);
+      const datasetToAudit = cleanedData.length > 0 ? cleanedData : data;
+      const report = await auditCsvData(apiKey, datasetToAudit);
       setAiReport(report);
     } catch (e) {
       alert("Failed to run AI audit. Check console for details.");
@@ -99,13 +102,12 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
       <ApiKeyModal 
         isOpen={showKeyModal} 
         onClose={() => setShowKeyModal(false)} 
         onSave={(key) => {
           setApiKey(key);
-          // Auto trigger after save
           setTimeout(() => handleAiAudit(), 500); 
         }} 
       />
@@ -119,16 +121,16 @@ const App: React.FC = () => {
         onNext={handleVerify}
       />
 
-      {/* Hero Section */}
+      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-              <ShieldCheck size={24} />
+            <div className="w-10 h-10 bg-[#1877F2] rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-200">
+              <Facebook size={24} />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">CSV Healer</h1>
-              <p className="text-xs text-slate-500 font-medium">Marketing Data Sanitizer</p>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">FB Audience Healer</h1>
+              <p className="text-xs text-slate-500 font-medium">Meta Guidelines Enforcer (Israel +972)</p>
             </div>
           </div>
           {status !== ProcessingStatus.IDLE && (
@@ -138,32 +140,33 @@ const App: React.FC = () => {
                  setData([]);
                  setCleanedData([]);
                  setAiReport('');
+                 setFbStats(null);
                }}
-               className="text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+               className="text-sm font-medium text-slate-500 hover:text-[#1877F2] transition-colors"
              >
-               Start Over
+               New File
              </button>
           )}
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl mx-auto px-6 py-10 w-full">
+      <main className="flex-1 max-w-7xl mx-auto px-6 py-10 w-full">
         
-        {/* State: Upload */}
+        {/* Upload State */}
         {status === ProcessingStatus.IDLE && (
-          <div className="max-w-xl mx-auto mt-10">
+          <div className="max-w-xl mx-auto mt-16 animate-fade-in">
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="border-3 border-dashed border-slate-300 bg-white rounded-2xl p-12 text-center hover:border-indigo-500 hover:bg-indigo-50/50 transition-all cursor-pointer group shadow-sm hover:shadow-md"
+              className="border-3 border-dashed border-slate-300 bg-white rounded-2xl p-12 text-center hover:border-[#1877F2] hover:bg-blue-50/30 transition-all cursor-pointer group shadow-sm hover:shadow-xl"
             >
-              <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
-                <Upload className="text-indigo-600 w-10 h-10" />
+              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
+                <Upload className="text-[#1877F2] w-10 h-10" />
               </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-2">Upload your broken CSV</h3>
+              <h3 className="text-2xl font-bold text-slate-800 mb-2">Upload CSV Audience</h3>
               <p className="text-slate-500 mb-8 max-w-xs mx-auto leading-relaxed">
-                Fix "Action Needed" errors, sanitize Excel formulas in phone numbers, and prepare your list for ads.
+                Applies <strong>Meta Formatting Guidelines</strong>: Clean phones (+972), lowercase emails, and strip Excel errors.
               </p>
-              <button className="px-8 py-3 bg-indigo-600 text-white font-semibold rounded-full shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <button className="px-8 py-3 bg-[#1877F2] text-white font-semibold rounded-full shadow-lg shadow-blue-200 group-hover:bg-blue-700 transition-colors">
                 Select CSV File
               </button>
               <input 
@@ -174,79 +177,121 @@ const App: React.FC = () => {
                 onChange={handleFileUpload} 
               />
             </div>
+            
+            <div className="mt-8 grid grid-cols-2 gap-4 text-center text-xs text-slate-400">
+               <div className="bg-white p-3 rounded-lg border border-slate-200">
+                 <span className="block font-semibold text-slate-600 mb-1">Clean Phones</span>
+                 <code>050-123...</code> → <code>97250123...</code>
+               </div>
+               <div className="bg-white p-3 rounded-lg border border-slate-200">
+                 <span className="block font-semibold text-slate-600 mb-1">Normalize Emails</span>
+                 <code>John.Doe@Gmail.com</code> → <code>john.doe@gmail.com</code>
+               </div>
+            </div>
           </div>
         )}
 
-        {/* State: Analysis & Action */}
+        {/* Dashboard State */}
         {(status === ProcessingStatus.READY || status === ProcessingStatus.PROCESSING || status === ProcessingStatus.COMPLETED) && (
           <div className="space-y-8 animate-fade-in-up">
             
-            {/* Stats Dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
-                    <FileText size={24} />
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 font-medium uppercase tracking-wider">Total Rows</p>
-                    <p className="text-2xl font-bold text-slate-800">{data.length}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-lg ${errorCount > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                    {errorCount > 0 ? <AlertTriangle size={24} /> : <CheckCircle2 size={24} />}
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500 font-medium uppercase tracking-wider">Formula Errors</p>
-                    <p className={`text-2xl font-bold ${errorCount > 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                      {errorCount} <span className="text-sm font-normal text-slate-400">found</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl p-6 shadow-lg text-white">
-                <div className="flex flex-col h-full justify-between">
-                  <div>
-                    <p className="text-indigo-200 text-sm font-medium uppercase tracking-wider mb-1">Status</p>
-                    <h3 className="text-2xl font-bold">
-                      {status === ProcessingStatus.COMPLETED ? 'Fixed & Ready' : 'Analysis Complete'}
-                    </h3>
+            {/* FB Readiness Stats - Only show after cleaning */}
+            {status === ProcessingStatus.COMPLETED && fbStats && (
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                     <span className="text-slate-500 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                       <BarChart3 className="w-4 h-4" /> Match Potential
+                     </span>
+                     <div className="mt-2">
+                        <span className="text-3xl font-bold text-[#1877F2]">{fbStats.matchRateEstimate}</span>
+                        <p className="text-xs text-slate-400 mt-1">Estimated rows usable by Meta</p>
+                     </div>
                   </div>
                   
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                     <span className="text-slate-500 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                       <Phone className="w-4 h-4 text-green-600" /> Valid Phones
+                     </span>
+                     <div className="mt-2">
+                        <div className="flex items-end gap-2">
+                            <span className="text-3xl font-bold text-slate-800">{fbStats.validPhones}</span>
+                            <span className="text-xs text-green-600 font-medium mb-1.5">({fbStats.fixedPhones} fixed)</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">Formatted as 972xxxxxxxxx</p>
+                     </div>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                     <span className="text-slate-500 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                       <Mail className="w-4 h-4 text-blue-500" /> Valid Emails
+                     </span>
+                     <div className="mt-2">
+                        <div className="flex items-end gap-2">
+                            <span className="text-3xl font-bold text-slate-800">{fbStats.validEmails}</span>
+                            <span className="text-xs text-blue-600 font-medium mb-1.5">({fbStats.fixedEmails} fixed)</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">Lowercase & Trimmed</p>
+                     </div>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                     <span className="text-slate-500 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                       <XCircle className="w-4 h-4 text-red-500" /> Invalid Rows
+                     </span>
+                     <div className="mt-2">
+                        <span className="text-3xl font-bold text-red-500">{fbStats.invalidPhones}</span>
+                        <p className="text-xs text-slate-400 mt-1">Scientific notation / Bad data</p>
+                     </div>
+                  </div>
+               </div>
+            )}
+
+            {/* Main Action Bar */}
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 shadow-xl text-white flex flex-col md:flex-row items-center justify-between gap-6">
+               <div className="flex items-center gap-4">
+                  <div className={`p-4 rounded-full ${errorCount > 0 ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                    {status === ProcessingStatus.COMPLETED ? <CheckCircle2 size={32} /> : <AlertTriangle size={32} />}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold">
+                      {status === ProcessingStatus.COMPLETED ? 'Meta Guidelines Applied' : `${data.length} Rows Loaded`}
+                    </h2>
+                    <p className="text-slate-400 text-sm">
+                      {status === ProcessingStatus.COMPLETED 
+                        ? 'Phones sanitized (+972), Emails lowercased. Ready for Ads Manager.' 
+                        : `Found ${errorCount} formatting errors. Emails will be lowercased.`}
+                    </p>
+                  </div>
+               </div>
+               
+               <div className="flex gap-3 w-full md:w-auto">
                   {status !== ProcessingStatus.COMPLETED ? (
                     <button 
                       onClick={handleClean}
-                      className="mt-4 w-full py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                      className="flex-1 md:flex-none py-3 px-8 bg-[#1877F2] hover:bg-blue-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2"
                     >
-                      <RefreshCw className="w-4 h-4" />
-                      Run Cleaner
+                      <RefreshCw className="w-5 h-5" />
+                      Fix All & Format
                     </button>
                   ) : (
-                    <div className="flex gap-2 mt-4">
-                      <button 
+                    <>
+                       <button 
                          onClick={handleVerify}
-                         className="flex-1 py-2 bg-indigo-800/30 hover:bg-indigo-800/50 border border-indigo-400/30 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                         title="Verify data correctness with random sample"
+                         className="flex-1 md:flex-none py-3 px-6 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
                        >
-                         <Eye className="w-4 h-4" />
-                         Verify
+                         <Eye className="w-5 h-5" />
+                         Check Random
                        </button>
                        <button 
                          onClick={handleDownload}
-                         className="flex-1 py-2 bg-white text-indigo-700 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+                         className="flex-1 md:flex-none py-3 px-8 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-900/20 flex items-center justify-center gap-2"
                        >
-                         <Download className="w-4 h-4" />
-                         Download
+                         <Download className="w-5 h-5" />
+                         Download FB CSV
                        </button>
-                    </div>
+                    </>
                   )}
-                </div>
-              </div>
+               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -255,16 +300,13 @@ const App: React.FC = () => {
                  <div className="flex items-center justify-between">
                     <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                       <FileText className="w-5 h-5 text-slate-400" />
-                      Data Preview (First 5 Rows)
+                      Preview
                     </h3>
-                    <div className="flex gap-2">
-                       <span className="px-3 py-1 text-xs rounded-full bg-red-100 text-red-700 font-medium">Original</span>
-                       {status === ProcessingStatus.COMPLETED && (
-                         <span className="px-3 py-1 text-xs rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-1">
-                           <ArrowRight className="w-3 h-3" /> Cleaned
-                         </span>
-                       )}
-                    </div>
+                    {status === ProcessingStatus.COMPLETED && (
+                       <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-md font-medium">
+                         Showing optimized data
+                       </span>
+                    )}
                  </div>
                  
                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden overflow-x-auto">
@@ -277,7 +319,7 @@ const App: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {(status === ProcessingStatus.COMPLETED ? cleanedData : data).slice(0, 5).map((row, idx) => (
+                        {(status === ProcessingStatus.COMPLETED ? cleanedData : data).slice(0, 8).map((row, idx) => (
                           <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                             {Object.values(row).slice(0, 4).map((cell, cIdx) => (
                               <td key={cIdx} className="px-6 py-4 max-w-xs truncate font-mono text-slate-600">
@@ -288,28 +330,27 @@ const App: React.FC = () => {
                         ))}
                       </tbody>
                     </table>
-                    <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 text-xs text-center text-slate-500">
-                       Showing preview of columns 1-4
-                    </div>
                  </div>
               </div>
 
-              {/* Gemini AI Assistant Sidebar */}
+              {/* AI Assistant */}
               <div className="space-y-4">
                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <Wand2 className="w-5 h-5 text-indigo-500" />
-                    AI Data Auditor
+                    AI Validation
                  </h3>
                  
                  <div className="bg-white rounded-xl shadow-sm border border-indigo-100 p-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                       <Wand2 size={100} />
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                       <Facebook size={100} />
                     </div>
                     
                     {!aiReport ? (
                       <div className="relative z-10 text-center py-6">
                         <p className="text-slate-600 mb-6 text-sm leading-relaxed">
-                          Use Gemini to analyze the language, region, and structural integrity of your contact list before exporting.
+                          {status === ProcessingStatus.COMPLETED 
+                            ? "Validate against Meta's email case sensitivity and phone format rules."
+                            : "Analyze structural integrity before cleaning."}
                         </p>
                         <button 
                           onClick={handleAiAudit}
@@ -319,38 +360,29 @@ const App: React.FC = () => {
                           {isAiLoading ? (
                             <span className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
                           ) : (
-                            <Play className="w-4 h-4 fill-current" />
+                            <span className="flex items-center gap-2">
+                               <ShieldCheck className="w-4 h-4" />
+                               {status === ProcessingStatus.COMPLETED ? "Verify for Meta Ads" : "Analyze Structure"}
+                            </span>
                           )}
-                          Analyze with Gemini
                         </button>
                       </div>
                     ) : (
                       <div className="relative z-10">
-                        <h4 className="font-semibold text-indigo-900 mb-3 border-b border-indigo-100 pb-2">Analysis Report</h4>
-                        <div className="prose prose-sm prose-indigo text-slate-600 max-h-64 overflow-y-auto pr-2">
+                        <h4 className="font-semibold text-indigo-900 mb-3 border-b border-indigo-100 pb-2">
+                          {status === ProcessingStatus.COMPLETED ? "Readiness Report" : "Data Analysis"}
+                        </h4>
+                        <div className="prose prose-sm prose-indigo text-slate-600 max-h-64 overflow-y-auto pr-2 text-xs">
                           <div className="whitespace-pre-wrap">{aiReport}</div>
                         </div>
                         <button 
                           onClick={() => setAiReport('')}
                           className="mt-4 text-xs text-indigo-500 hover:text-indigo-700 font-medium underline"
                         >
-                          Clear Analysis
+                          Clear
                         </button>
                       </div>
                     )}
-                 </div>
-                 
-                 {/* Quick Fix Info Card */}
-                 <div className="bg-amber-50 rounded-xl border border-amber-200 p-5">
-                    <h4 className="font-semibold text-amber-800 mb-2 text-sm flex items-center gap-2">
-                       <AlertTriangle className="w-4 h-4" />
-                       About the Error
-                    </h4>
-                    <p className="text-xs text-amber-700/80 leading-relaxed">
-                       Your CSV contains "Excel Formula Injection" artifacts (e.g., <code>="{`{number}`}"</code>). 
-                       This happens when exporting from certain systems to force Excel to treat numbers as text. 
-                       Our "Run Cleaner" tool strips these artifacts automatically.
-                    </p>
                  </div>
               </div>
             </div>
