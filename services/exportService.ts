@@ -6,6 +6,13 @@
 import { CsvRow } from "../types";
 import { DataQualityReport } from "../utils/csvHelper";
 import { logExport } from "../utils/logger";
+import {
+  Platform,
+  transformDataForPlatform,
+  validateForPlatform,
+  getPlatformInfo,
+  PLATFORM_CONFIGS
+} from "./platformService";
 
 export type ExportFormat = 'csv' | 'json' | 'xlsx' | 'txt';
 
@@ -331,4 +338,154 @@ export const exportForMetaAds = (
   });
 
   downloadFile(content, `${filename}.csv`, mimeType);
+};
+
+/**
+ * Export for Google Ads Customer Match (E.164 format)
+ */
+export const exportForGoogleAds = (
+  data: CsvRow[],
+  phoneCol: string | null,
+  emailCol: string | null,
+  filename: string = 'google_customer_match'
+): { success: boolean; errors: string[]; warnings: string[] } => {
+  logExport.info('Exporting for Google Ads', { rows: data.length, phoneCol, emailCol });
+
+  // Validate data meets Google Ads requirements
+  const validation = validateForPlatform(data, 'google', phoneCol, emailCol);
+
+  if (!validation.valid) {
+    logExport.error('Google Ads validation failed', { errors: validation.errors });
+    return {
+      success: false,
+      errors: validation.errors,
+      warnings: validation.warnings
+    };
+  }
+
+  // Transform data for Google Ads format
+  const transformedData = transformDataForPlatform(data, 'google', phoneCol, emailCol);
+
+  if (transformedData.length === 0) {
+    logExport.warn('No valid data to export for Google Ads');
+    return {
+      success: false,
+      errors: ['No valid data to export'],
+      warnings: []
+    };
+  }
+
+  // Get the correct column headers for Google
+  const columns = [];
+  if (emailCol) columns.push('Email');
+  if (phoneCol) columns.push('Phone');
+
+  const { content, mimeType } = exportData(transformedData, {
+    format: 'csv',
+    columns,
+    includeHeaders: true
+  });
+
+  downloadFile(content, `${filename}.csv`, mimeType);
+
+  logExport.info('Google Ads export completed', {
+    originalRows: data.length,
+    exportedRows: transformedData.length
+  });
+
+  return {
+    success: true,
+    errors: [],
+    warnings: validation.warnings
+  };
+};
+
+/**
+ * Universal platform export function
+ */
+export const exportForPlatform = (
+  data: CsvRow[],
+  platform: Platform,
+  phoneCol: string | null,
+  emailCol: string | null,
+  filename?: string
+): { success: boolean; errors: string[]; warnings: string[] } => {
+  logExport.info('Universal platform export', { platform, rows: data.length });
+
+  const defaultFilename = platform === 'meta' ? 'meta_audience' : 'google_customer_match';
+  const finalFilename = filename || defaultFilename;
+
+  // Validate for platform
+  const validation = validateForPlatform(data, platform, phoneCol, emailCol);
+
+  if (!validation.valid) {
+    logExport.error('Platform validation failed', { platform, errors: validation.errors });
+    return {
+      success: false,
+      errors: validation.errors,
+      warnings: validation.warnings
+    };
+  }
+
+  // Transform data for platform
+  const transformedData = transformDataForPlatform(data, platform, phoneCol, emailCol);
+
+  if (transformedData.length === 0) {
+    return {
+      success: false,
+      errors: ['No valid data to export after transformation'],
+      warnings: validation.warnings
+    };
+  }
+
+  // Determine columns based on platform
+  const config = PLATFORM_CONFIGS[platform];
+  const columns = [];
+  if (emailCol) columns.push(platform === 'google' ? 'Email' : (emailCol || 'email'));
+  if (phoneCol) columns.push(platform === 'google' ? 'Phone' : (phoneCol || 'phone'));
+
+  const { content, mimeType } = exportData(transformedData, {
+    format: 'csv',
+    columns,
+    includeHeaders: true
+  });
+
+  downloadFile(content, `${finalFilename}.csv`, mimeType);
+
+  logExport.info('Platform export completed', {
+    platform,
+    originalRows: data.length,
+    exportedRows: transformedData.length
+  });
+
+  return {
+    success: true,
+    errors: [],
+    warnings: validation.warnings
+  };
+};
+
+/**
+ * Preview data transformation for platform (without downloading)
+ */
+export const previewPlatformExport = (
+  data: CsvRow[],
+  platform: Platform,
+  phoneCol: string | null,
+  emailCol: string | null,
+  limit: number = 5
+): {
+  preview: CsvRow[];
+  validation: { valid: boolean; errors: string[]; warnings: string[] };
+  platformInfo: ReturnType<typeof getPlatformInfo>;
+} => {
+  const validation = validateForPlatform(data, platform, phoneCol, emailCol);
+  const transformedData = transformDataForPlatform(data, platform, phoneCol, emailCol);
+  const platformInfo = getPlatformInfo(platform);
+
+  return {
+    preview: transformedData.slice(0, limit),
+    validation,
+    platformInfo
+  };
 };
