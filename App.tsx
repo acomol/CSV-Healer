@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye, Facebook, BarChart3, XCircle, Mail, Phone } from 'lucide-react';
+import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye, Facebook, BarChart3, XCircle, Mail, Phone, Info } from 'lucide-react';
 import { CsvRow, ProcessingStatus, FbStats } from './types';
-import { processCsvData, detectFormulaErrors } from './utils/csvHelper';
+import { processCsvData, detectFormulaErrors, detectIfHeaderRow, generateAutoHeaders } from './utils/csvHelper';
 import { auditCsvData } from './services/geminiService';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { VerificationModal } from './components/VerificationModal';
@@ -24,7 +24,11 @@ const App: React.FC = () => {
   // Verification State
   const [showVerifyModal, setShowVerifyModal] = useState<boolean>(false);
   const [verifyRowIndex, setVerifyRowIndex] = useState<number>(0);
-  
+
+  // Header detection state
+  const [autoHeadersGenerated, setAutoHeadersGenerated] = useState<boolean>(false);
+  const [detectedColumns, setDetectedColumns] = useState<{ phone: string | null; email: string | null }>({ phone: null, email: null });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,13 +41,60 @@ const App: React.FC = () => {
     setCleanedData([]);
     setErrorCount(0);
     setFbStats(null);
+    setAutoHeadersGenerated(false);
+    setDetectedColumns({ phone: null, email: null });
 
+    // First pass: parse without headers to detect if first row is data or header
     Papa.parse(file, {
-      header: true, 
+      header: false,
       skipEmptyLines: true,
       complete: (results: any) => {
-        setData(results.data);
-        const errors = detectFormulaErrors(results.data);
+        const rawData: string[][] = results.data;
+
+        if (rawData.length === 0) {
+          setStatus(ProcessingStatus.ERROR);
+          return;
+        }
+
+        // Check if first row looks like a header
+        const firstRowAsObject: CsvRow = {};
+        rawData[0].forEach((val: string, idx: number) => {
+          firstRowAsObject[`col_${idx}`] = val;
+        });
+
+        const hasHeaderRow = detectIfHeaderRow(firstRowAsObject);
+
+        let finalData: CsvRow[];
+        let headersGenerated = false;
+
+        if (hasHeaderRow) {
+          // First row is headers - use them as keys
+          const headers = rawData[0];
+          finalData = rawData.slice(1).map((row: string[]) => {
+            const obj: CsvRow = {};
+            headers.forEach((header: string, idx: number) => {
+              obj[header.trim() || `Column ${idx + 1}`] = row[idx] || '';
+            });
+            return obj;
+          });
+        } else {
+          // First row is data - generate auto headers
+          const columnCount = rawData[0].length;
+          const autoHeaders = generateAutoHeaders(columnCount);
+          headersGenerated = true;
+
+          finalData = rawData.map((row: string[]) => {
+            const obj: CsvRow = {};
+            autoHeaders.forEach((header: string, idx: number) => {
+              obj[header] = row[idx] || '';
+            });
+            return obj;
+          });
+        }
+
+        setAutoHeadersGenerated(headersGenerated);
+        setData(finalData);
+        const errors = detectFormulaErrors(finalData);
         setErrorCount(errors);
         setStatus(ProcessingStatus.READY);
       },
@@ -57,9 +108,10 @@ const App: React.FC = () => {
   const handleClean = () => {
     setStatus(ProcessingStatus.PROCESSING);
     setTimeout(() => {
-      const { cleaned, stats } = processCsvData(data);
+      const { cleaned, stats, phoneCol, emailCol } = processCsvData(data);
       setCleanedData(cleaned);
       setFbStats(stats);
+      setDetectedColumns({ phone: phoneCol, email: emailCol });
       setStatus(ProcessingStatus.COMPLETED);
     }, 800);
   };
@@ -134,13 +186,15 @@ const App: React.FC = () => {
             </div>
           </div>
           {status !== ProcessingStatus.IDLE && (
-             <button 
+             <button
                onClick={() => {
                  setStatus(ProcessingStatus.IDLE);
                  setData([]);
                  setCleanedData([]);
                  setAiReport('');
                  setFbStats(null);
+                 setAutoHeadersGenerated(false);
+                 setDetectedColumns({ phone: null, email: null });
                }}
                className="text-sm font-medium text-slate-500 hover:text-[#1877F2] transition-colors"
              >
@@ -246,6 +300,28 @@ const App: React.FC = () => {
                </div>
             )}
 
+            {/* Smart Detection Info Banner */}
+            {(autoHeadersGenerated || (status === ProcessingStatus.COMPLETED && (detectedColumns.phone || detectedColumns.email))) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  {autoHeadersGenerated && (
+                    <p className="text-blue-800 font-medium">
+                      🔍 Smart Detection: No headers found in file. Auto-generated column names (Column 1, Column 2, etc.)
+                    </p>
+                  )}
+                  {status === ProcessingStatus.COMPLETED && (detectedColumns.phone || detectedColumns.email) && (
+                    <p className="text-blue-700 mt-1">
+                      📊 Detected columns (scanned first 50 rows):
+                      {detectedColumns.phone && <span className="ml-2 bg-blue-100 px-2 py-0.5 rounded text-blue-800">Phone: <code>{detectedColumns.phone}</code></span>}
+                      {detectedColumns.email && <span className="ml-2 bg-blue-100 px-2 py-0.5 rounded text-blue-800">Email: <code>{detectedColumns.email}</code></span>}
+                      {!detectedColumns.phone && <span className="ml-2 bg-yellow-100 px-2 py-0.5 rounded text-yellow-800">⚠️ No phone column detected</span>}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Main Action Bar */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl p-6 shadow-xl text-white flex flex-col md:flex-row items-center justify-between gap-6">
                <div className="flex items-center gap-4">
@@ -257,8 +333,8 @@ const App: React.FC = () => {
                       {status === ProcessingStatus.COMPLETED ? 'Meta Guidelines Applied' : `${data.length} Rows Loaded`}
                     </h2>
                     <p className="text-slate-400 text-sm">
-                      {status === ProcessingStatus.COMPLETED 
-                        ? 'Phones sanitized (+972), Emails lowercased. Ready for Ads Manager.' 
+                      {status === ProcessingStatus.COMPLETED
+                        ? 'Phones sanitized (+972), Emails lowercased. Ready for Ads Manager.'
                         : `Found ${errorCount} formatting errors. Emails will be lowercased.`}
                     </p>
                   </div>
