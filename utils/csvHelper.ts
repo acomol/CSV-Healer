@@ -358,3 +358,318 @@ export const processCsvData = (data: CsvRow[]): { cleaned: CsvRow[], stats: FbSt
 
   return { cleaned, stats, phoneCol, emailCol };
 };
+
+// ============================================
+// PHASE 2: Duplicate Detection & Error Categorization
+// ============================================
+
+export interface DuplicateInfo {
+  type: 'phone' | 'email';
+  value: string;
+  count: number;
+  rowIndices: number[];
+}
+
+export interface ErrorCategory {
+  type: 'excel_formula' | 'scientific_notation' | 'invalid_format' | 'empty' | 'too_short' | 'too_long';
+  count: number;
+  examples: { rowIndex: number; value: string }[];
+}
+
+export interface DataQualityReport {
+  duplicates: {
+    phones: DuplicateInfo[];
+    emails: DuplicateInfo[];
+    totalDuplicateRows: number;
+  };
+  errors: {
+    phone: ErrorCategory[];
+    email: ErrorCategory[];
+  };
+  qualityScore: number; // 0-100
+  recommendations: string[];
+}
+
+/**
+ * Detect duplicates in phone and email columns
+ */
+export const detectDuplicates = (
+  data: CsvRow[],
+  phoneCol: string | null,
+  emailCol: string | null
+): DataQualityReport['duplicates'] => {
+  const phoneMap = new Map<string, number[]>();
+  const emailMap = new Map<string, number[]>();
+
+  data.forEach((row, idx) => {
+    // Track phone duplicates
+    if (phoneCol && row[phoneCol]) {
+      const normalized = row[phoneCol].replace(/\D/g, '');
+      if (normalized.length >= 9) {
+        const existing = phoneMap.get(normalized) || [];
+        existing.push(idx);
+        phoneMap.set(normalized, existing);
+      }
+    }
+
+    // Track email duplicates
+    if (emailCol && row[emailCol]) {
+      const normalized = row[emailCol].trim().toLowerCase();
+      if (normalized.includes('@')) {
+        const existing = emailMap.get(normalized) || [];
+        existing.push(idx);
+        emailMap.set(normalized, existing);
+      }
+    }
+  });
+
+  // Filter to only duplicates (count > 1)
+  const phoneDuplicates: DuplicateInfo[] = [];
+  const emailDuplicates: DuplicateInfo[] = [];
+  let totalDuplicateRows = 0;
+
+  phoneMap.forEach((indices, value) => {
+    if (indices.length > 1) {
+      phoneDuplicates.push({
+        type: 'phone',
+        value,
+        count: indices.length,
+        rowIndices: indices
+      });
+      totalDuplicateRows += indices.length - 1; // Count extra occurrences
+    }
+  });
+
+  emailMap.forEach((indices, value) => {
+    if (indices.length > 1) {
+      emailDuplicates.push({
+        type: 'email',
+        value,
+        count: indices.length,
+        rowIndices: indices
+      });
+      totalDuplicateRows += indices.length - 1;
+    }
+  });
+
+  // Sort by count descending
+  phoneDuplicates.sort((a, b) => b.count - a.count);
+  emailDuplicates.sort((a, b) => b.count - a.count);
+
+  return {
+    phones: phoneDuplicates.slice(0, 10), // Top 10
+    emails: emailDuplicates.slice(0, 10),
+    totalDuplicateRows
+  };
+};
+
+/**
+ * Categorize errors by type for detailed reporting
+ */
+export const categorizeErrors = (
+  data: CsvRow[],
+  phoneCol: string | null,
+  emailCol: string | null
+): DataQualityReport['errors'] => {
+  const phoneErrors: Record<ErrorCategory['type'], ErrorCategory> = {
+    excel_formula: { type: 'excel_formula', count: 0, examples: [] },
+    scientific_notation: { type: 'scientific_notation', count: 0, examples: [] },
+    invalid_format: { type: 'invalid_format', count: 0, examples: [] },
+    empty: { type: 'empty', count: 0, examples: [] },
+    too_short: { type: 'too_short', count: 0, examples: [] },
+    too_long: { type: 'too_long', count: 0, examples: [] }
+  };
+
+  const emailErrors: Record<ErrorCategory['type'], ErrorCategory> = {
+    excel_formula: { type: 'excel_formula', count: 0, examples: [] },
+    scientific_notation: { type: 'scientific_notation', count: 0, examples: [] },
+    invalid_format: { type: 'invalid_format', count: 0, examples: [] },
+    empty: { type: 'empty', count: 0, examples: [] },
+    too_short: { type: 'too_short', count: 0, examples: [] },
+    too_long: { type: 'too_long', count: 0, examples: [] }
+  };
+
+  const MAX_EXAMPLES = 3;
+
+  data.forEach((row, idx) => {
+    // Analyze phone errors
+    if (phoneCol) {
+      const val = row[phoneCol] || '';
+
+      if (!val.trim()) {
+        phoneErrors.empty.count++;
+        if (phoneErrors.empty.examples.length < MAX_EXAMPLES) {
+          phoneErrors.empty.examples.push({ rowIndex: idx, value: '(empty)' });
+        }
+      } else if (val.startsWith('=') || val.includes('"')) {
+        phoneErrors.excel_formula.count++;
+        if (phoneErrors.excel_formula.examples.length < MAX_EXAMPLES) {
+          phoneErrors.excel_formula.examples.push({ rowIndex: idx, value: val });
+        }
+      } else if (val.includes('E+') || val.includes('e+')) {
+        phoneErrors.scientific_notation.count++;
+        if (phoneErrors.scientific_notation.examples.length < MAX_EXAMPLES) {
+          phoneErrors.scientific_notation.examples.push({ rowIndex: idx, value: val });
+        }
+      } else {
+        const digits = val.replace(/\D/g, '');
+        if (digits.length < 9) {
+          phoneErrors.too_short.count++;
+          if (phoneErrors.too_short.examples.length < MAX_EXAMPLES) {
+            phoneErrors.too_short.examples.push({ rowIndex: idx, value: val });
+          }
+        } else if (digits.length > 15) {
+          phoneErrors.too_long.count++;
+          if (phoneErrors.too_long.examples.length < MAX_EXAMPLES) {
+            phoneErrors.too_long.examples.push({ rowIndex: idx, value: val });
+          }
+        }
+      }
+    }
+
+    // Analyze email errors
+    if (emailCol) {
+      const val = row[emailCol] || '';
+
+      if (!val.trim()) {
+        emailErrors.empty.count++;
+        if (emailErrors.empty.examples.length < MAX_EXAMPLES) {
+          emailErrors.empty.examples.push({ rowIndex: idx, value: '(empty)' });
+        }
+      } else if (!val.includes('@')) {
+        emailErrors.invalid_format.count++;
+        if (emailErrors.invalid_format.examples.length < MAX_EXAMPLES) {
+          emailErrors.invalid_format.examples.push({ rowIndex: idx, value: val });
+        }
+      } else if (!EMAIL_REGEX.test(val.trim().toLowerCase())) {
+        emailErrors.invalid_format.count++;
+        if (emailErrors.invalid_format.examples.length < MAX_EXAMPLES) {
+          emailErrors.invalid_format.examples.push({ rowIndex: idx, value: val });
+        }
+      }
+    }
+  });
+
+  // Filter out zero-count categories
+  const filterNonZero = (errors: Record<string, ErrorCategory>) =>
+    Object.values(errors).filter(e => e.count > 0);
+
+  return {
+    phone: filterNonZero(phoneErrors),
+    email: filterNonZero(emailErrors)
+  };
+};
+
+/**
+ * Generate comprehensive data quality report
+ */
+export const generateQualityReport = (
+  data: CsvRow[],
+  phoneCol: string | null,
+  emailCol: string | null
+): DataQualityReport => {
+  const duplicates = detectDuplicates(data, phoneCol, emailCol);
+  const errors = categorizeErrors(data, phoneCol, emailCol);
+
+  // Calculate quality score (0-100)
+  let score = 100;
+  const totalRows = data.length;
+
+  // Deduct for duplicates (max -20)
+  const duplicateRate = duplicates.totalDuplicateRows / totalRows;
+  score -= Math.min(20, duplicateRate * 100);
+
+  // Deduct for errors (max -50)
+  const totalPhoneErrors = errors.phone.reduce((sum, e) => sum + e.count, 0);
+  const totalEmailErrors = errors.email.reduce((sum, e) => sum + e.count, 0);
+  const errorRate = (totalPhoneErrors + totalEmailErrors) / (totalRows * 2);
+  score -= Math.min(50, errorRate * 200);
+
+  // Deduct if no phone or email column detected (-15 each)
+  if (!phoneCol) score -= 15;
+  if (!emailCol) score -= 15;
+
+  score = Math.max(0, Math.round(score));
+
+  // Generate recommendations
+  const recommendations: string[] = [];
+
+  if (duplicates.phones.length > 0) {
+    recommendations.push(`Found ${duplicates.phones.length} duplicate phone numbers. Consider deduplicating before upload.`);
+  }
+  if (duplicates.emails.length > 0) {
+    recommendations.push(`Found ${duplicates.emails.length} duplicate emails. Meta may charge for redundant matches.`);
+  }
+
+  const scientificCount = errors.phone.find(e => e.type === 'scientific_notation')?.count || 0;
+  if (scientificCount > 0) {
+    recommendations.push(`${scientificCount} phones corrupted by Excel scientific notation. These cannot be recovered.`);
+  }
+
+  const formulaCount = errors.phone.find(e => e.type === 'excel_formula')?.count || 0;
+  if (formulaCount > 0) {
+    recommendations.push(`${formulaCount} phones have Excel formula artifacts. Will be auto-fixed.`);
+  }
+
+  const emptyPhones = errors.phone.find(e => e.type === 'empty')?.count || 0;
+  if (emptyPhones > totalRows * 0.1) {
+    recommendations.push(`${emptyPhones} rows have empty phone numbers (${Math.round(emptyPhones/totalRows*100)}%).`);
+  }
+
+  if (!phoneCol) {
+    recommendations.push('No phone column detected. Please verify your CSV structure.');
+  }
+
+  if (score >= 80) {
+    recommendations.push('Data quality is good. Ready for Meta upload after processing.');
+  } else if (score >= 50) {
+    recommendations.push('Data quality is moderate. Review errors before upload.');
+  } else {
+    recommendations.push('Data quality is poor. Significant cleanup required.');
+  }
+
+  return {
+    duplicates,
+    errors,
+    qualityScore: score,
+    recommendations
+  };
+};
+
+/**
+ * Remove duplicate rows based on phone/email
+ */
+export const removeDuplicates = (
+  data: CsvRow[],
+  phoneCol: string | null,
+  emailCol: string | null,
+  preferFirst: boolean = true
+): CsvRow[] => {
+  const seen = new Set<string>();
+  const result: CsvRow[] = [];
+
+  const dataToProcess = preferFirst ? data : [...data].reverse();
+
+  dataToProcess.forEach(row => {
+    const keys: string[] = [];
+
+    if (phoneCol && row[phoneCol]) {
+      keys.push('p:' + row[phoneCol].replace(/\D/g, ''));
+    }
+    if (emailCol && row[emailCol]) {
+      keys.push('e:' + row[emailCol].trim().toLowerCase());
+    }
+
+    const compositeKey = keys.join('|');
+
+    if (compositeKey && !seen.has(compositeKey)) {
+      seen.add(compositeKey);
+      result.push(row);
+    } else if (!compositeKey) {
+      // Keep rows with no identifiers
+      result.push(row);
+    }
+  });
+
+  return preferFirst ? result : result.reverse();
+};

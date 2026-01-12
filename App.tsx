@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye, Facebook, BarChart3, XCircle, Mail, Phone, Info } from 'lucide-react';
+import { Upload, FileText, Download, Play, AlertTriangle, CheckCircle2, RefreshCw, Wand2, ShieldCheck, ArrowRight, Eye, Facebook, BarChart3, XCircle, Mail, Phone, Info, TrendingUp, Trash2 } from 'lucide-react';
 import { CsvRow, ProcessingStatus, FbStats } from './types';
-import { processCsvData, detectFormulaErrors, detectIfHeaderRow, generateAutoHeaders } from './utils/csvHelper';
+import { processCsvData, detectFormulaErrors, detectIfHeaderRow, generateAutoHeaders, generateQualityReport, removeDuplicates, DataQualityReport } from './utils/csvHelper';
 import { auditCsvData } from './services/geminiService';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { VerificationModal } from './components/VerificationModal';
+import { DropZone } from './components/DropZone';
+import { ProgressBar } from './components/ProgressBar';
+import { QualityReportModal } from './components/QualityReportModal';
 
 // Declare PapaParse from CDN
 declare const Papa: any;
@@ -28,6 +31,13 @@ const App: React.FC = () => {
   // Header detection state
   const [autoHeadersGenerated, setAutoHeadersGenerated] = useState<boolean>(false);
   const [detectedColumns, setDetectedColumns] = useState<{ phone: string | null; email: string | null }>({ phone: null, email: null });
+
+  // Quality report state
+  const [qualityReport, setQualityReport] = useState<DataQualityReport | null>(null);
+  const [showQualityModal, setShowQualityModal] = useState<boolean>(false);
+
+  // Progress state
+  const [processingProgress, setProcessingProgress] = useState<number>(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,15 +115,73 @@ const App: React.FC = () => {
     });
   };
 
+  // Handle file from DropZone component
+  const handleFileFromDropZone = (file: File) => {
+    // Create a synthetic event to reuse existing logic
+    const syntheticEvent = {
+      target: { files: [file] }
+    } as unknown as React.ChangeEvent<HTMLInputElement>;
+    handleFileUpload(syntheticEvent);
+  };
+
   const handleClean = () => {
     setStatus(ProcessingStatus.PROCESSING);
+    setProcessingProgress(0);
+
+    // Simulate progress for better UX
+    const progressInterval = setInterval(() => {
+      setProcessingProgress(prev => Math.min(prev + 15, 90));
+    }, 100);
+
     setTimeout(() => {
+      clearInterval(progressInterval);
+      setProcessingProgress(100);
+
       const { cleaned, stats, phoneCol, emailCol } = processCsvData(data);
       setCleanedData(cleaned);
       setFbStats(stats);
       setDetectedColumns({ phone: phoneCol, email: emailCol });
+
+      // Generate quality report
+      const report = generateQualityReport(data, phoneCol, emailCol);
+      setQualityReport(report);
+
       setStatus(ProcessingStatus.COMPLETED);
     }, 800);
+  };
+
+  const handleRemoveDuplicates = () => {
+    if (cleanedData.length === 0) return;
+
+    const { phone, email } = detectedColumns;
+    const deduplicated = removeDuplicates(cleanedData, phone, email);
+    const removedCount = cleanedData.length - deduplicated.length;
+
+    setCleanedData(deduplicated);
+
+    // Update stats
+    if (fbStats) {
+      setFbStats({
+        ...fbStats,
+        totalRows: deduplicated.length
+      });
+    }
+
+    // Update quality report
+    if (qualityReport) {
+      setQualityReport({
+        ...qualityReport,
+        duplicates: {
+          phones: [],
+          emails: [],
+          totalDuplicateRows: 0
+        },
+        qualityScore: Math.min(100, qualityReport.qualityScore + 10),
+        recommendations: [`Removed ${removedCount} duplicate rows.`, ...qualityReport.recommendations.filter(r => !r.includes('duplicate'))]
+      });
+    }
+
+    setShowQualityModal(false);
   };
 
   const handleVerify = () => {
@@ -164,13 +232,20 @@ const App: React.FC = () => {
         }} 
       />
       
-      <VerificationModal 
+      <VerificationModal
         isOpen={showVerifyModal}
         onClose={() => setShowVerifyModal(false)}
         originalRow={data[verifyRowIndex]}
         cleanedRow={cleanedData[verifyRowIndex]}
         rowIndex={verifyRowIndex}
         onNext={handleVerify}
+      />
+
+      <QualityReportModal
+        isOpen={showQualityModal}
+        onClose={() => setShowQualityModal(false)}
+        report={qualityReport}
+        onRemoveDuplicates={handleRemoveDuplicates}
       />
 
       {/* Header */}
@@ -195,6 +270,8 @@ const App: React.FC = () => {
                  setFbStats(null);
                  setAutoHeadersGenerated(false);
                  setDetectedColumns({ phone: null, email: null });
+                 setQualityReport(null);
+                 setProcessingProgress(0);
                }}
                className="text-sm font-medium text-slate-500 hover:text-[#1877F2] transition-colors"
              >
@@ -206,43 +283,9 @@ const App: React.FC = () => {
 
       <main className="flex-1 max-w-7xl mx-auto px-6 py-10 w-full">
         
-        {/* Upload State */}
+        {/* Upload State - Using DropZone Component */}
         {status === ProcessingStatus.IDLE && (
-          <div className="max-w-xl mx-auto mt-16 animate-fade-in">
-            <div 
-              onClick={() => fileInputRef.current?.click()}
-              className="border-3 border-dashed border-slate-300 bg-white rounded-2xl p-12 text-center hover:border-[#1877F2] hover:bg-blue-50/30 transition-all cursor-pointer group shadow-sm hover:shadow-xl"
-            >
-              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
-                <Upload className="text-[#1877F2] w-10 h-10" />
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-2">Upload CSV Audience</h3>
-              <p className="text-slate-500 mb-8 max-w-xs mx-auto leading-relaxed">
-                Applies <strong>Meta Formatting Guidelines</strong>: Clean phones (+972), lowercase emails, and strip Excel errors.
-              </p>
-              <button className="px-8 py-3 bg-[#1877F2] text-white font-semibold rounded-full shadow-lg shadow-blue-200 group-hover:bg-blue-700 transition-colors">
-                Select CSV File
-              </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept=".csv"
-                onChange={handleFileUpload} 
-              />
-            </div>
-            
-            <div className="mt-8 grid grid-cols-2 gap-4 text-center text-xs text-slate-400">
-               <div className="bg-white p-3 rounded-lg border border-slate-200">
-                 <span className="block font-semibold text-slate-600 mb-1">Clean Phones</span>
-                 <code>050-123...</code> → <code>97250123...</code>
-               </div>
-               <div className="bg-white p-3 rounded-lg border border-slate-200">
-                 <span className="block font-semibold text-slate-600 mb-1">Normalize Emails</span>
-                 <code>John.Doe@Gmail.com</code> → <code>john.doe@gmail.com</code>
-               </div>
-            </div>
-          </div>
+          <DropZone onFileSelect={handleFileFromDropZone} accept=".csv" />
         )}
 
         {/* Dashboard State */}
@@ -341,8 +384,12 @@ const App: React.FC = () => {
                </div>
                
                <div className="flex gap-3 w-full md:w-auto">
-                  {status !== ProcessingStatus.COMPLETED ? (
-                    <button 
+                  {status === ProcessingStatus.PROCESSING ? (
+                    <div className="flex-1 md:w-64">
+                      <ProgressBar progress={processingProgress} label="Processing..." />
+                    </div>
+                  ) : status !== ProcessingStatus.COMPLETED ? (
+                    <button
                       onClick={handleClean}
                       className="flex-1 md:flex-none py-3 px-8 bg-[#1877F2] hover:bg-blue-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2"
                     >
@@ -351,14 +398,21 @@ const App: React.FC = () => {
                     </button>
                   ) : (
                     <>
-                       <button 
+                       <button
+                         onClick={() => setShowQualityModal(true)}
+                         className="flex-1 md:flex-none py-3 px-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+                       >
+                         <TrendingUp className="w-5 h-5" />
+                         Quality Report
+                       </button>
+                       <button
                          onClick={handleVerify}
                          className="flex-1 md:flex-none py-3 px-6 bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
                        >
                          <Eye className="w-5 h-5" />
                          Check Random
                        </button>
-                       <button 
+                       <button
                          onClick={handleDownload}
                          className="flex-1 md:flex-none py-3 px-8 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-900/20 flex items-center justify-center gap-2"
                        >
