@@ -1,0 +1,5 @@
+{
+  "name": "CSV Healer FB ",
+  "description": "A tool to repair CSV formatting errors, specifically designed to fix Excel formula artifacts in phone number columns for marketing platforms.",
+  "requestFramePermissions": []
+}
