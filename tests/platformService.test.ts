@@ -1,3 +1,14 @@
+// Mock localStorage for Node.js environment
+if (typeof localStorage === 'undefined') {
+  (global as any).localStorage = {
+    store: {} as Record<string, string>,
+    getItem(key: string) { return this.store[key] || null; },
+    setItem(key: string, value: string) { this.store[key] = value; },
+    removeItem(key: string) { delete this.store[key]; },
+    clear() { this.store = {}; }
+  };
+}
+
 /**
  * Platform Service Tests
  * Tests for Meta and Google Ads phone/email normalization

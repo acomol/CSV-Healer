@@ -9,6 +9,7 @@ import { DropZone } from './components/DropZone';
 import { ProgressBar } from './components/ProgressBar';
 import { QualityReportModal } from './components/QualityReportModal';
 import { PlatformSelector, PlatformToggle } from './components/PlatformSelector';
+import { HistoryPanel } from './components/HistoryPanel';
 import { Platform, getPlatformInfo } from './services/platformService';
 import { exportForPlatform, previewPlatformExport } from './services/exportService';
 
@@ -25,7 +26,7 @@ const App: React.FC = () => {
   const [aiReport, setAiReport] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
-  const [apiKey, setApiKey] = useState<string>(process.env.API_KEY || '');
+  const [apiKey, setApiKey] = useState<string>('');
   
   // Verification State
   const [showVerifyModal, setShowVerifyModal] = useState<boolean>(false);
@@ -661,6 +662,9 @@ const App: React.FC = () => {
                       </div>
                     )}
                  </div>
+
+                 {/* History Panel */}
+                 <HistoryPanel />
               </div>
             </div>
           </div>

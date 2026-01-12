@@ -46,7 +46,7 @@ class HistoryService {
   }
 
   private generateId(): string {
-    return `file_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    return `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
   private loadFromStorage(): void {
