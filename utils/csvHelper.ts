@@ -3,60 +3,207 @@ import { CsvRow, FbStats } from "../types";
 // Regex to identify Excel formula artifacts
 const EXCEL_FORMULA_REGEX = /^="?(\+?[\dE,\.]+)"?$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^[\d\s\-\(\)\+\.="]+$/;
 
-// Helper: Detect Phone Column
-export const detectPhoneColumn = (row: CsvRow): string | null => {
-  let bestMatch = null;
-  let maxScore = 0;
+// Number of rows to scan for column detection
+const SCAN_ROWS_LIMIT = 50;
 
-  Object.keys(row).forEach(key => {
-    const val = row[key];
-    if (!val) return;
-    
-    let score = 0;
-    const clean = val.replace(/[^0-9]/g, '');
-    
-    // Header keyword boost
-    const headerLower = key.toLowerCase();
-    if (headerLower.includes('phone') || headerLower.includes('mobile') || headerLower.includes('cell')) score += 5;
+// Minimum score threshold for valid column detection
+const MIN_PHONE_SCORE = 3;
+const MIN_EMAIL_SCORE = 3;
 
-    // Content analysis
-    if (clean.length >= 9 && clean.length <= 15) score += 2;
-    if (val.includes('=') && val.includes('"')) score += 3; // High likelihood it's the broken excel column
-    if (val.startsWith('05') || val.startsWith('5')) score += 1;
-    
-    if (score > maxScore) {
-      maxScore = score;
-      bestMatch = key;
+/**
+ * Smart Header Detection
+ * Checks if the first row contains actual data (email/phone patterns) or headers
+ * Returns true if the row appears to be a header row, false if it's data
+ */
+export const detectIfHeaderRow = (row: CsvRow): boolean => {
+  const values = Object.values(row);
+  const keys = Object.keys(row);
+
+  let dataPatternCount = 0;
+  let headerPatternCount = 0;
+
+  for (let i = 0; i < values.length; i++) {
+    const val = values[i];
+    const key = keys[i];
+
+    if (!val || typeof val !== 'string') continue;
+
+    const trimmed = val.trim().toLowerCase();
+
+    // Check for data patterns (emails, phones)
+    if (EMAIL_REGEX.test(trimmed)) {
+      dataPatternCount += 2; // Strong indicator of data row
     }
-  });
 
-  return bestMatch;
+    // Phone pattern: mostly digits, possibly with formatting
+    const digits = val.replace(/\D/g, '');
+    if (digits.length >= 9 && digits.length <= 15) {
+      // Has phone-like digit count
+      if (PHONE_PATTERN.test(val) || val.startsWith('=')) {
+        dataPatternCount += 2;
+      }
+    }
+
+    // Check for header patterns (common header keywords)
+    const headerKeywords = [
+      'phone', 'mobile', 'cell', 'tel', 'telephone',
+      'email', 'mail', 'e-mail',
+      'name', 'first', 'last', 'fname', 'lname',
+      'address', 'city', 'country', 'zip', 'postal',
+      'id', 'number', 'num', '#'
+    ];
+
+    for (const keyword of headerKeywords) {
+      if (trimmed.includes(keyword) || key.toLowerCase().includes(keyword)) {
+        headerPatternCount++;
+        break;
+      }
+    }
+
+    // Purely alphabetic short strings are likely headers
+    if (/^[a-z_\s]+$/.test(trimmed) && trimmed.length < 30 && !trimmed.includes('@')) {
+      headerPatternCount += 0.5;
+    }
+  }
+
+  // If we find strong data patterns (emails/phones), it's likely NOT a header row
+  // Return true only if it looks like a header row
+  return dataPatternCount < headerPatternCount;
 };
 
-// Helper: Detect Email Column
-export const detectEmailColumn = (row: CsvRow): string | null => {
-  let bestMatch = null;
+/**
+ * Generate auto headers when file has no headers
+ */
+export const generateAutoHeaders = (columnCount: number): string[] => {
+  return Array.from({ length: columnCount }, (_, i) => `Column ${i + 1}`);
+};
+
+/**
+ * Detect Phone Column - scans up to 50 rows for accurate detection
+ */
+export const detectPhoneColumn = (data: CsvRow[]): string | null => {
+  if (data.length === 0) return null;
+
+  const columnScores: Record<string, number> = {};
+  const rowsToScan = Math.min(data.length, SCAN_ROWS_LIMIT);
+
+  // Initialize scores for all columns
+  Object.keys(data[0]).forEach(key => {
+    columnScores[key] = 0;
+
+    // Header keyword boost (applied once per column)
+    const headerLower = key.toLowerCase();
+    if (headerLower.includes('phone') || headerLower.includes('mobile') ||
+        headerLower.includes('cell') || headerLower.includes('tel')) {
+      columnScores[key] += 10;
+    }
+  });
+
+  // Scan multiple rows and accumulate scores
+  for (let i = 0; i < rowsToScan; i++) {
+    const row = data[i];
+
+    Object.keys(row).forEach(key => {
+      const val = row[key];
+      if (!val || typeof val !== 'string') return;
+
+      const clean = val.replace(/[^0-9]/g, '');
+
+      // Content analysis per row
+      if (clean.length >= 9 && clean.length <= 15) {
+        columnScores[key] += 2;
+      }
+
+      // Excel formula artifacts (high likelihood of phone data)
+      if (val.includes('=') && val.includes('"')) {
+        columnScores[key] += 3;
+      }
+
+      // Israeli phone patterns
+      if (val.startsWith('05') || clean.startsWith('05') ||
+          val.startsWith('5') || clean.startsWith('5') ||
+          clean.startsWith('972')) {
+        columnScores[key] += 2;
+      }
+
+      // Scientific notation (corrupted phone)
+      if (val.includes('E+') || val.includes('e+')) {
+        columnScores[key] += 1;
+      }
+    });
+  }
+
+  // Find column with highest score
+  let bestMatch: string | null = null;
   let maxScore = 0;
 
-  Object.keys(row).forEach(key => {
-    const val = row[key];
-    if (!val) return;
-
-    let score = 0;
-    // Header keyword boost
-    if (key.toLowerCase().includes('email') || key.toLowerCase().includes('mail')) score += 5;
-    
-    // Content analysis
-    if (val.includes('@') && val.includes('.')) score += 3;
-    
+  Object.entries(columnScores).forEach(([key, score]) => {
     if (score > maxScore) {
       maxScore = score;
       bestMatch = key;
     }
   });
 
-  return bestMatch;
+  // Only return if score meets minimum threshold
+  return maxScore >= MIN_PHONE_SCORE ? bestMatch : null;
+};
+
+/**
+ * Detect Email Column - scans up to 50 rows for accurate detection
+ */
+export const detectEmailColumn = (data: CsvRow[]): string | null => {
+  if (data.length === 0) return null;
+
+  const columnScores: Record<string, number> = {};
+  const rowsToScan = Math.min(data.length, SCAN_ROWS_LIMIT);
+
+  // Initialize scores for all columns
+  Object.keys(data[0]).forEach(key => {
+    columnScores[key] = 0;
+
+    // Header keyword boost (applied once per column)
+    const headerLower = key.toLowerCase();
+    if (headerLower.includes('email') || headerLower.includes('mail') ||
+        headerLower.includes('e-mail')) {
+      columnScores[key] += 10;
+    }
+  });
+
+  // Scan multiple rows and accumulate scores
+  for (let i = 0; i < rowsToScan; i++) {
+    const row = data[i];
+
+    Object.keys(row).forEach(key => {
+      const val = row[key];
+      if (!val || typeof val !== 'string') return;
+
+      // Email pattern detection
+      if (val.includes('@') && val.includes('.')) {
+        columnScores[key] += 3;
+
+        // Extra points for valid email format
+        if (EMAIL_REGEX.test(val.trim().toLowerCase())) {
+          columnScores[key] += 2;
+        }
+      }
+    });
+  }
+
+  // Find column with highest score
+  let bestMatch: string | null = null;
+  let maxScore = 0;
+
+  Object.entries(columnScores).forEach(([key, score]) => {
+    if (score > maxScore) {
+      maxScore = score;
+      bestMatch = key;
+    }
+  });
+
+  // Only return if score meets minimum threshold
+  return maxScore >= MIN_EMAIL_SCORE ? bestMatch : null;
 };
 
 // Helper: Normalize Email for Facebook
@@ -182,16 +329,16 @@ export const calculateStats = (data: CsvRow[], phoneCol: string, emailCol: strin
   };
 };
 
-export const processCsvData = (data: CsvRow[]): { cleaned: CsvRow[], stats: FbStats } => {
-  if (data.length === 0) return { cleaned: [], stats: {} as FbStats };
+export const processCsvData = (data: CsvRow[]): { cleaned: CsvRow[], stats: FbStats, phoneCol: string | null, emailCol: string | null } => {
+  if (data.length === 0) return { cleaned: [], stats: {} as FbStats, phoneCol: null, emailCol: null };
 
-  // 1. Detect Columns
-  const phoneCol = detectPhoneColumn(data[0]) || Object.keys(data[0])[2]; // Fallback
-  const emailCol = detectEmailColumn(data[0]);
+  // 1. Detect Columns using multi-row scanning (up to 50 rows)
+  const phoneCol = detectPhoneColumn(data);
+  const emailCol = detectEmailColumn(data);
 
   const cleaned = data.map(row => {
     const newRow: CsvRow = { ...row };
-    
+
     // Normalize Phone
     if (phoneCol && row[phoneCol]) {
       const { value } = normalizePhoneForFb(row[phoneCol]);
@@ -207,7 +354,7 @@ export const processCsvData = (data: CsvRow[]): { cleaned: CsvRow[], stats: FbSt
     return newRow;
   });
 
-  const stats = calculateStats(data, phoneCol, emailCol);
+  const stats = calculateStats(data, phoneCol || '', emailCol);
 
-  return { cleaned, stats };
+  return { cleaned, stats, phoneCol, emailCol };
 };
