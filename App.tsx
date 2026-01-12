@@ -277,10 +277,10 @@ const App: React.FC = () => {
     setIsAiLoading(true);
     try {
       const datasetToAudit = cleanedData.length > 0 ? cleanedData : data;
-      const report = await auditCsvData(apiKey, datasetToAudit);
+      const report = await auditCsvData(apiKey, datasetToAudit, selectedPlatform);
       setAiReport(report);
     } catch (e) {
-      alert("Failed to run AI audit. Check console for details.");
+      alert("Ошибка AI аудита. Проверьте консоль.");
     } finally {
       setIsAiLoading(false);
     }

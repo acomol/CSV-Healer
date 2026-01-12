@@ -41,28 +41,67 @@ export interface AuditIssue {
   examples?: string[];
 }
 
-export const auditCsvData = async (apiKey: string, data: CsvRow[]): Promise<string> => {
+export const auditCsvData = async (apiKey: string, data: CsvRow[], platform: 'meta' | 'google' = 'meta'): Promise<string> => {
   if (!apiKey) throw new Error("API Key is required");
 
-  logAI.info('Starting basic audit', { rowCount: data.length });
+  logAI.info('Starting basic audit', { rowCount: data.length, platform });
 
   const ai = new GoogleGenAI({ apiKey });
   const sample = getSampleRows(data, 10);
 
-  const prompt = `
-    I am an auditor for Facebook (Meta) Ads Customer Lists.
-    Target Location: **Israel** (+972).
+  const platformName = platform === 'meta' ? 'Meta Ads' : 'Google Ads';
+  const phoneFormat = platform === 'meta' ? '972XXXXXXXXX (без +)' : '+972XXXXXXXXX (E.164)';
+  const minRows = platform === 'google' ? 100 : 1;
 
-    Analyze the following CSV sample (first 10 rows) against "Meta Customer list formatting guidelines":
+  const prompt = `
+    Ты аудитор списков клиентов для ${platformName}.
+    Целевой регион: **Израиль** (+972).
+
+    Проанализируй следующую выборку CSV (первые 10 строк) на соответствие требованиям ${platformName}:
     ${sample}
 
-    **Strict Verification Rules:**
-    1. **Emails**: Must be **lowercase** and trimmed. No uppercase letters allowed.
-    2. **Phones**: Must be digits only. Format: Country Code + Number (e.g., 972501234567). No symbols (+, -), no leading zeros.
-    3. **Excel Artifacts**: Verify no '="..."' formulas or scientific notation remain.
-    4. **Columns**: Are 'email' and 'phone' columns clearly identifiable?
+    **Общая информация:**
+    - Всего строк в файле: ${data.length}
+    - Минимум строк для ${platformName}: ${minRows}
 
-    Output a concise report. If clean, say "PASSED: Ready for Meta Upload". If not, bullet point specific rows/values that fail.
+    **Правила проверки:**
+    1. **Email**: строчные буквы, без пробелов, валидный формат
+    2. **Телефон**: формат ${phoneFormat}, 12 цифр для Израиля
+    3. **Артефакты Excel**: нет формул '="..."' или научной нотации (E+)
+    4. **Заголовки**: колонки email и phone должны быть идентифицируемы
+
+    **ОТВЕТ НА РУССКОМ ЯЗЫКЕ в следующем формате:**
+
+    ═══════════════════════════════════════
+    📊 РЕЗУЛЬТАТ АУДИТА
+    ═══════════════════════════════════════
+
+    **Статус:** [✅ ГОТОВО К ЗАГРУЗКЕ / ⚠️ ТРЕБУЕТСЯ ДОРАБОТКА / ❌ НЕ ГОТОВО]
+
+    ───────────────────────────────────────
+    📋 ПРОВЕРКА ДАННЫХ
+    ───────────────────────────────────────
+    • Email: [✅ Пройдено / ❌ Ошибка] - краткое описание
+    • Телефон: [✅ Пройдено / ❌ Ошибка] - краткое описание
+    • Excel артефакты: [✅ Нет / ❌ Обнаружены]
+    • Заголовки: [✅ Определены / ⚠️ Требуется переименование]
+
+    ───────────────────────────────────────
+    🔍 НАЙДЕННЫЕ ПРОБЛЕМЫ
+    ───────────────────────────────────────
+    [Если есть проблемы - перечислить с примерами]
+
+    ───────────────────────────────────────
+    💡 РЕКОМЕНДАЦИИ
+    ───────────────────────────────────────
+    [Конкретные действия для исправления]
+
+    ───────────────────────────────────────
+    📝 ПРЕДЛАГАЕМЫЕ ЗАГОЛОВКИ
+    ───────────────────────────────────────
+    [Если нужно переименовать колонки]
+
+    Будь кратким, но информативным. Укажи конкретные примеры проблемных данных.
   `;
 
   try {
